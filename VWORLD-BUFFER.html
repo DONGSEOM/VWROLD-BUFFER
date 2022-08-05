@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>브이월드 WMTS 배경지도 사용및 지적도 선택시 변경</title>
+<link rel="stylesheet" href="../js/ol.css" type="text/css">
+<script src="../js/ol.js"></script>
+<script src="https://code.jquery.com/jquery-2.2.3.min.js"></script>
+</head>
+<body>
+	<select onchange="changeMeter(this.value);">
+		<option>선택</option>
+		<option value='0.1' selected="selected">0.1m</option>
+		<option value='10'>10m</option>
+		<option value='100'>100m</option>
+	</select>
+	<form id="dataForm">
+		<input type="hidden" name="key" value="APIKEY">
+		<input type="hidden" name="domain" value="http://localhost:8080">
+		<input type="hidden" name="service" value="data">
+		<input type="hidden" name="version" value="2.0">
+		<input type="hidden" name="request" value="getfeature">
+		<input type="hidden" name="format" value="json">
+		<input type="hidden" name="size" value="100">
+		<input type="hidden" name="page" value="1">
+		<input type="hidden" name="data" value="LP_PA_CBND_BUBUN">
+		<input type="hidden" name="geometry" value="true">
+		<input type="hidden" name="attribute" value="true">
+		<input type="hidden" name="crs" value="EPSG:3857">
+		<input type="hidden" name="buffer" value="0.1">
+		<input type="hidden" name="geomfilter" value="POINT(14149214.380024165 4494012.047228456)">
+	</form>
+<div id="map" style="width: 100%; height: 350px; left: 0px; top: 0px"></div>
+
+<script type="text/javascript">
+
+	let changeMeter = function(value){
+		$('#dataForm > [name=buffer]').val(value);
+	}
+
+	/* wms 설정  */
+	let setWms = function(value){
+
+		map.getLayers().forEach(function(layer){
+			if("WMS_LAYER" == layer.get("name")){
+		    	map.removeLayer(layer)
+			}
+		});
+
+		let wms_tile = new ol.layer.Tile({
+			name : "WMS_LAYER",
+			source : new ol.source.TileWMS({
+				url : "http://api.vworld.kr/req/wms?",
+				params : {
+					LAYERS : value,
+					STYLES : value,
+					CRS : "EPSG:900913",
+					apikey : $('#dataForm > [name=key]').val(),
+					DOMAIN : "http://loacalhost:8080",
+					title : value,
+					FORMAT : "image/png",
+					domain : "http://localhost",
+					server : "dev"
+				}
+			})
+		});
+		map.addLayer(wms_tile);
+	}
+
+
+
+	let Base = new ol.layer.Tile({
+		name : "Base",
+		source: new ol.source.XYZ({
+			url: 'http://api.vworld.kr/req/wmts/1.0.0/CEB52025-E065-364C-9DBA-44880E3B02B8/Base/{z}/{y}/{x}.png'
+		})
+	}); // WMTS API 사용
+
+    let olView = new ol.View({
+        center: [14149214.380024165, 4494012.047228456],//좌표계 변환
+        zoom: 18
+    })// 뷰 설정
+
+
+    let map = new ol.Map({
+        layers: [Base],
+        target: 'map',
+        view: olView
+    });
+    /* 폴리곤의 스타일 설정 */
+
+
+	let wms_val = 'lp_pa_cbnd_bubun';
+
+	setWms(wms_val);
+
+	$.ajax({
+		type : "get",
+		url : "http://api.vworld.kr/req/data",
+		data : $('#dataForm').serialize(),
+		dataType : 'jsonp',
+		async : false,
+		success : function(data) {
+			$('#url_value').html("<a href='http://api.vworld.kr/req/data?"+$('#dataForm').serialize()+"'>http://api.vworld.kr/req/data?"+$('#dataForm').serialize()+"</a>" );
+			//Data API geojson 데이터를 features로 파싱
+
+			var vectorSource = new ol.source.Vector({
+				features : (new ol.format.GeoJSON()).readFeatures(data.response.result.featureCollection)
+			})
+
+			var vector_layer = new ol.layer.Vector({
+				source : vectorSource
+			})
+			map.addLayer(vector_layer);
+		},
+		error : function(xhr, stat, err) {
+		}
+	});
+
+	//현재 중심좌표기준으로 반경 내 Data API 검색
+	map.on("click", function(evt) {
+		let center = evt.coordinate;
+		let features = new Array();
+		$('[name=geomfilter]').val('POINT('+center[0]+' '+center[1]+')');
+
+		//point 좌표 기준 buffer 영역 만큼 데이터를 조회
+	    $.ajax({
+			type: "get",
+			url: "http://api.vworld.kr/req/data",
+			data : $('#dataForm').serialize(),
+			dataType: 'jsonp',
+			async: false,
+			success: function(data) {
+				features = (new ol.format.GeoJSON()).readFeatures(data.response.result.featureCollection)
+				//Data API geojson 데이터를 features로 파싱
+			},complete: function(){
+
+
+				let vectorStyle = function(feature) {
+					let style = new ol.style.Style({
+					stroke: new ol.style.Stroke({
+					color: [0, 0, 255, 1],
+					width: 2
+					}),
+					fill: new ol.style.Fill({
+					color: [255, 255, 0, .7]
+					})
+				});
+				return [style];
+    }
+
+				vectorSource = new ol.source.Vector({
+					features:features
+				})
+				let VectorLayer = new ol.layer.Vector({
+					source: vectorSource,
+					id:"vectorLayer",
+					style: vectorStyle
+				});
+				map.getLayers().forEach(function(layer){
+					if(layer.get("id")=="vectorLayer"){
+						map.removeLayer(layer);//기존결과 삭제
+					}
+				})
+				map.addLayer(VectorLayer);
+			},
+
+			error: function(xhr, stat, err) {}
+	    });
+	})
+</script>
+</body>
+</html>
